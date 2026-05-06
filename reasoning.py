@@ -37,6 +37,14 @@ STEP_PENALTY              = 1    # per grid step (distance proxy)
 # of low visibility / reduced supervision.
 NIGHT_RESTRICTED_EXTRA = 10
 
+# Time-of-day modifier: in the evening, high-traffic cells are worse because
+# of shift changes and end-of-day surge.
+EVENING_HIGH_TRAFFIC_EXTRA = 12
+
+# Bonus for the ideal case: ML predicts low delay AND the route stays in
+# normal zones the whole way.
+SAFE_ROUTE_BONUS = 10
+
 
 # --------------------------------------------------------------------------- #
 # Decision categories (printed in the per-route report)
@@ -95,6 +103,11 @@ def apply_rules_and_score(route: Dict[str, Any]) -> Dict[str, Any]:
         pen = hcount * HIGH_TRAFFIC_ZONE_PENALTY
         score -= pen
         reasons.append(f"Crosses {hcount} high-traffic cell(s) (-{pen})")
+        if time_of_day == "evening":
+            score -= EVENING_HIGH_TRAFFIC_EXTRA
+            reasons.append(
+                f"Evening high-traffic surge (-{EVENING_HIGH_TRAFFIC_EXTRA})"
+            )
     else:
         reasons.append("Avoids high-traffic zones")
 
@@ -103,11 +116,25 @@ def apply_rules_and_score(route: Dict[str, Any]) -> Dict[str, Any]:
     score -= step_pen
     reasons.append(f"{route['steps']} steps long (-{step_pen})")
 
-    # 5) Final categorical decision
+    # 5) Bonus: ML predicts low delay AND route stays in normal zones.
+    if (predicted_delay == "low"
+            and features["zone_type"] == "normal"):
+        score += SAFE_ROUTE_BONUS
+        reasons.append(
+            f"Safe-route bonus: low delay + normal zone (+{SAFE_ROUTE_BONUS})"
+        )
+
+    # 6) Hard reject: high predicted delay on a long route is non-viable.
+    hard_reject = (predicted_delay == "high"
+                   and features["distance"] == "long")
+    if hard_reject:
+        reasons.append("REJECTED: high delay on long route")
+
+    # 7) Final categorical decision
     score = max(score, 0)
     route["score"]    = score
     route["reasons"]  = reasons
-    route["decision"] = _classify(score)
+    route["decision"] = DECISION_AVOID if hard_reject else _classify(score)
     return route
 
 
@@ -121,9 +148,15 @@ def select_final_route(routes: List[Dict[str, Any]]) -> Dict[str, Any]:
         raise ValueError("select_final_route called with no routes.")
 
     delay_rank = {"low": 0, "medium": 1, "high": 2}
+    decision_rank = {
+        DECISION_RECOMMEND:  0,
+        DECISION_ACCEPTABLE: 1,
+        DECISION_AVOID:      2,
+    }
 
     def sort_key(r: Dict[str, Any]):
         return (
+            decision_rank.get(r["decision"], 3),
             -r["score"],
             r["steps"],
             delay_rank.get(r["predicted_delay"], 3),

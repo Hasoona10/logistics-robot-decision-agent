@@ -30,11 +30,12 @@ def bucket_zone_type(route: dict) -> str:
 
 
 def bucket_congestion(route: dict) -> str:
-    # 0 H -> low, 1 H -> medium, 2+ H -> high
+    # 2+ H or very long route -> high; 1 H or moderately long -> medium; else low
     h = route["high_traffic_count"]
-    if h >= 2:
+    steps = route["steps"]
+    if h >= 2 or steps > 12:
         return "high"
-    if h == 1:
+    if h == 1 or steps > 8:
         return "medium"
     return "low"
 
