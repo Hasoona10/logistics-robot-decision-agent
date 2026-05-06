@@ -5,6 +5,7 @@ from typing import List, Tuple
 
 from search import GRID, find_candidate_paths, print_grid
 from ml import load_and_train
+from reasoning import apply_rules_and_score, select_final_route
 
 
 VALID_TIMES_OF_DAY = ("morning", "afternoon", "evening", "night")
@@ -113,21 +114,20 @@ def main() -> None:
     predictor = load_and_train()
     enriched = evaluate_routes(routes, time_of_day, predictor)
 
-    # TODO: wire in reasoning.py once it exposes apply_rules_and_score and select_final_route
-    final = None
+    # Reasoning: score each route then pick a final one with explanation.
+    for route in enriched:
+        apply_rules_and_score(route)
+    final = select_final_route(enriched)
 
     print("Per-route evaluation:")
     print("-" * 60)
     for route in enriched:
         print_route_evaluation(route)
 
-    if final is not None:
-        print("=" * 60)
-        print(f"Final Selected Route: {final['id']}")
-        print(f"Why: {final.get('explanation', '(no explanation provided)')}")
-        print("=" * 60)
-    else:
-        print("(Reasoning module not yet wired in - no final selection.)")
+    print("=" * 60)
+    print(f"Final Selected Route: {final['id']}")
+    print(f"Why: {final.get('explanation', '(no explanation provided)')}")
+    print("=" * 60)
 
 
 if __name__ == "__main__":
